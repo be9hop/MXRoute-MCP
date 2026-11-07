@@ -13,7 +13,10 @@ MXroute is an email hosting provider. Its Email Hosting REST API lives at `https
 - [Requirements and quick start](#requirements-and-quick-start)
 - [Configuration](#configuration)
   - [Reseller impersonation](#reseller-impersonation)
-  - [Security notes](#security-notes)
+- [Security](#security)
+  - [Before you connect](#before-you-connect)
+  - [Scoping what the credential can reach](#scoping-what-the-credential-can-reach)
+  - [Where the key lives](#where-the-key-lives)
 - [Tool reference](#tool-reference)
   - [Account](#account)
   - [Domains](#domains)
@@ -37,7 +40,7 @@ MXroute is an email hosting provider. Its Email Hosting REST API lives at `https
 ## Requirements and quick start
 
 - Node.js 20 or newer.
-- An MXroute API key. Create one at <https://panel.mxroute.com/api-keys.php> — that page also shows the mail server hostname and username to use.
+- An MXroute API key. Create a dedicated key just for this server at <https://panel.mxroute.com/api-keys.php> — that page also shows the mail server hostname and username to use. See [Security](#security) for why a dedicated key and what else to lock down before connecting.
 - Every tool call requires the three environment variables `MXROUTE_API_KEY`, `MXROUTE_SERVER`, and `MXROUTE_USERNAME`; without them calls fail with `CONFIG_MISSING`.
 
 ### Claude Desktop
@@ -113,8 +116,6 @@ Point the MCP client at the built entry point instead of `npx`:
 claude mcp add mxroute --env MXROUTE_API_KEY=... --env MXROUTE_SERVER=... --env MXROUTE_USERNAME=... -- npx -y mxroute-mcp
 ```
 
-The key given on the command line is stored in plaintext in the client config and shell history; prefer editing the config file directly on shared machines.
-
 ## Configuration
 
 The server reads its configuration from environment variables.
@@ -142,12 +143,41 @@ Keep `MXROUTE_API_KEY` as the reseller's own complete key and `MXROUTE_SERVER` a
 
 While impersonating, all account and domain operations apply to the target user. Reseller-only endpoints (the reseller users and packages tools) are unavailable and return `FORBIDDEN` — switch `MXROUTE_USERNAME` back to the plain reseller username to use them. Only ordinary user targets are supported; admin credentials and user-to-user impersonation are not. The reseller and all impersonated targets share the reseller's rate-limit bucket on that server.
 
-### Security notes
+## Security
 
-- The API key is stored in plaintext wherever the MCP client keeps its config — `claude_desktop_config.json`, `~/.cursor/mcp.json`, or shell history with the CLI one-liner. Anyone who can read that file can administer the account.
-- Driven by an agent, this server can perform destructive operations: deleting a domain, a mailbox with its stored mail, or a reseller user with everything under it. The destructive tools carry `destructiveHint: true` annotations; check how the MCP client surfaces approval prompts for annotated tools before letting an agent run unsupervised.
-- `MXROUTE_API_BASE` sends the API key to whatever host it names. Only set it when you have a specific reason to redirect API traffic.
-- The server never logs the key (or its length or contents) and writes all logging to stderr; stdout carries only the JSON-RPC protocol.
+The MXroute API has no OAuth or delegation flow, so this server must hold a real credential, and every request it makes is triggered by the agent driving it. Whoever or whatever can make the agent call tools can exercise everything the key permits — deleting domains, mailboxes, and, for reseller keys, users. The model never sees the key value: it reaches only the server process as an environment variable, and nothing echoes it in tool output or logs. Prompt injection or a mistaken instruction can still trigger any tool the key authorizes, so the controls that matter are how powerful the key is and what the client's approval gate lets through.
+
+### Before you connect
+
+1. Create a dedicated API key just for this server at <https://panel.mxroute.com/api-keys.php>. Never use the account password, and never reuse a key that something else depends on. A dedicated key can be revoked on its own if the agent misbehaves or the config leaks.
+2. If the key's settings support command restrictions, restrict the key to what this server needs.
+3. Keep the client's per-tool approval prompts on for this server; never auto-approve everything. Eight tools carry `destructiveHint: true` annotations:
+
+   | Tool | What it deletes |
+   | --- | --- |
+   | `delete_domain` | The domain and everything configured under it |
+   | `delete_email_account` | The mailbox and its stored mail |
+   | `delete_forwarder` | The forwarder |
+   | `delete_domain_pointer` | The pointer — the pointed domain stops serving mail through it |
+   | `remove_spam_whitelist_entry` | The whitelist entry (sender lists are shared across the account's domains) |
+   | `remove_spam_blacklist_entry` | The blacklist entry (shared the same way) |
+   | `delete_reseller_user` | The user and everything under it |
+   | `delete_package` | The package |
+
+   Clients may ignore annotations; approval gates are user-controlled. Treat the prompts for these eight tools as the last line of defense.
+
+### Scoping what the credential can reach
+
+- **Resellers:** set `MXROUTE_USERNAME` to `reseller|user` so the server manages one owned ordinary user instead of the reseller account. Reseller-admin endpoints (the reseller users and packages tools) are unavailable while impersonating, and only that user's domains and mailboxes are reachable. The reseller and all impersonated targets share the reseller's rate-limit bucket.
+- **Isolation pattern:** provision a dedicated user with a small package and a single domain, then run this server impersonating it. The blast radius becomes that user's single domain, not the reseller account. This scopes what the server will do with the key — the config file still stores the reseller's key, so guard it as described in [Where the key lives](#where-the-key-lives).
+- **Informational use only:** if you need only quota reads, DNS records, and listings, say so in your agent's instructions and decline write tool calls at the approval prompt. The API has no read-only key type; unless the key's command restrictions enforce it, read-only use depends on you and the client.
+
+### Where the key lives
+
+- The key sits in plaintext in the MCP client config file (`claude_desktop_config.json`, `~/.cursor/mcp.json`), readable by anything running as your user. On macOS/Linux, `chmod 600` the config file; on Windows it lives under the user profile — the same exposure class.
+- The `claude mcp add --env` one-liner also records the key in shell history. Prefer editing the config file directly.
+- `MXROUTE_API_BASE` receives the key on every request — only set it deliberately, when you have a specific reason to redirect API traffic.
+- The server never prints the key. The only config value that can appear in an error message is `MXROUTE_API_BASE` (in the network-error message); the startup warning names only the missing variable names.
 
 ## Tool reference
 
