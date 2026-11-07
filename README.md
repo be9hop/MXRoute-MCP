@@ -52,7 +52,7 @@ Edit the config file: `%APPDATA%\Claude\claude_desktop_config.json` on Windows, 
       "args": ["-y", "mxroute-mcp"],
       "env": {
         "MXROUTE_API_KEY": "your-api-key",
-        "MXROUTE_SERVER": "eagle.mxlogin.com",
+        "MXROUTE_SERVER": "your-server-hostname",
         "MXROUTE_USERNAME": "your-username"
       }
     }
@@ -72,7 +72,7 @@ Edit `~/.cursor/mcp.json`:
       "args": ["-y", "mxroute-mcp"],
       "env": {
         "MXROUTE_API_KEY": "your-api-key",
-        "MXROUTE_SERVER": "eagle.mxlogin.com",
+        "MXROUTE_SERVER": "your-server-hostname",
         "MXROUTE_USERNAME": "your-username"
       }
     }
@@ -99,7 +99,7 @@ Point the MCP client at the built entry point instead of `npx`:
       "args": ["/path/to/build/index.js"],
       "env": {
         "MXROUTE_API_KEY": "your-api-key",
-        "MXROUTE_SERVER": "eagle.mxlogin.com",
+        "MXROUTE_SERVER": "your-server-hostname",
         "MXROUTE_USERNAME": "your-username"
       }
     }
